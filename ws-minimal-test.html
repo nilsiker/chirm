@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Signaling Client</title>
+</head>
+<body>
+  <h1>WebRTC Signaling Client</h1>
+  <pre id="log"></pre>
+  <script>
+    const log = (msg) => {
+      document.getElementById('log').textContent += msg + '\n';
+    };
+
+    const ws = new WebSocket("ws://localhost:3030/ws");
+
+    ws.onopen = () => {
+      log("Connected to signaling server");
+
+      // Simulate sending a fake offer to another peer
+      const msg = {
+        type: "register",
+        id: "some-peer-id", // Replace with real target ID
+      };
+      ws.send(JSON.stringify(msg));
+      log("Sent message: " + JSON.stringify(msg));
+    };
+
+    ws.onmessage = (event) => {
+      log("Received message: " + event.data);
+    };
+
+    ws.onerror = (e) => log("WebSocket error: " + e);
+    ws.onclose = () => log("WebSocket closed");
+  </script>
+</body>
+</html>
