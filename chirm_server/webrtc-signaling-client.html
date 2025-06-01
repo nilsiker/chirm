@@ -1,36 +1,91 @@
 <!DOCTYPE html>
 <html>
+
 <head>
   <title>Signaling Client</title>
+  <style>
+    body {
+      color: white;
+      background-color: #16161D;
+    }
+  </style>
 </head>
+
 <body>
   <h1>WebRTC Signaling Client</h1>
+  <label for="username">Username:</label>
+  <input id="username" type="text" disabled />
+  <p>
+    <button id="connect">Connect</button>
+    <button id="disconnect">Disconnect</button>
+    <button id="clear">Clear</button>
+  </p>
   <pre id="log"></pre>
   <script>
-    const log = (msg) => {
-      document.getElementById('log').textContent += msg + '\n';
+    const logEl = document.getElementById('log');
+    const connectEl = document.getElementById('connect');
+    const disconnectEl = document.getElementById('disconnect');
+    const usernameEl = document.getElementById('username');
+    const clearEl = document.getElementById('clear');
+
+    connectEl.disabled = true
+    disconnectEl.disabled = true
+    usernameEl.disabled = true
+    clearEl.disabled = true
+
+    const log = (msg, server = false) => {
+      const color = server ? 'gray' : 'white';
+      const direction = server ? "<-" : "->";
+      const entry = `<p style="color: ${color}; margin: 0;">${direction} ${msg}</p>`;
+      logEl.innerHTML = entry + logEl.innerHTML;
     };
 
     const ws = new WebSocket("ws://localhost:3030/ws");
+    let username = "peer"
+    usernameEl.value = username;
+    usernameEl.onchange = (ev) => {
+      username = ev.target.value
+    }
 
+    log("connecting to signaling server...")
     ws.onopen = () => {
       log("Connected to signaling server");
+      usernameEl.disabled = false
+      connectEl.disabled = false
+      disconnectEl.disabled = false
+      clearEl.disabled = false
+    };
 
-      // Simulate sending a fake offer to another peer
+    connectEl.onclick = () => {
       const msg = {
-        type: "register",
-        id: "some-peer-id", // Replace with real target ID
+        type: "connect",
+        id: username,
       };
       ws.send(JSON.stringify(msg));
-      log("Sent message: " + JSON.stringify(msg));
+      log(JSON.stringify(msg));
+    }
+
+    disconnectEl.onclick = () => {
+      const msg = {
+        type: "disconnect",
+        id: username,
+      };
+      ws.send(JSON.stringify(msg));
+      log(JSON.stringify(msg));
     };
 
-    ws.onmessage = (event) => {
-      log("Received message: " + event.data);
-    };
+    clearEl.onclick = () => logEl.textContent = "";
 
-    ws.onerror = (e) => log("WebSocket error: " + e);
-    ws.onclose = () => log("WebSocket closed");
+    ws.onmessage = (event) => log(event.data, true);
+    ws.onerror = (e) => log("WebSocket error: " + JSON.stringify(e));
+    ws.onclose = () => {
+      log("WebSocket closed");
+      connectEl.disabled = true
+      disconnectEl.disabled = true
+      usernameEl.disabled = true
+      clearEl.disabled = true
+    }
   </script>
 </body>
+
 </html>

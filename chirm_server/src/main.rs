@@ -1,90 +1,109 @@
-use futures::{SinkExt, StreamExt, stream::SplitSink};
-use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-};
+mod client_manager;
+mod messaging;
+
+use client_manager::ClientManager;
+use futures::{SinkExt, StreamExt};
+use messaging::{InMessage, OutMessage};
+use std::sync::Arc;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
-use warp::{
-    Filter,
-    filters::ws::{Message, WebSocket},
-};
-
-type Clients = Arc<Mutex<HashMap<String, tokio::sync::mpsc::UnboundedSender<Message>>>>;
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum SignalMessage {
-    Register { id: String },
-    Offer { to: String, sdp: String },
-    Answer { to: String, sdp: String },
-    IceCandidate { to: String, candidate: String },
-}
+use tracing::info;
+use warp::{Filter, filters::ws::Message};
 
 #[tokio::main]
 async fn main() {
-    let clients: Clients = Arc::new(Mutex::new(HashMap::new()));
+    tracing_subscriber::fmt().with_env_filter("debug").init();
 
-    let clients_filter = warp::any().map(move || clients.clone());
+    let client_manager = Arc::new(ClientManager::new());
+
+    let client_manager_filter = warp::any().map(move || client_manager.clone());
 
     let route = warp::path("ws")
         .and(warp::ws())
-        .and(clients_filter)
+        .and(client_manager_filter)
         .map(|ws: warp::ws::Ws, clients| ws.on_upgrade(move |socket| handle_ws(socket, clients)));
 
-    println!("Signaling server listening on ws://localhost:3030/ws");
+    info!("Signaling server listening on ws://localhost:3030/ws");
     warp::serve(route).run(([127, 0, 0, 1], 3030)).await;
 }
 
-async fn handle_ws(ws: warp::ws::WebSocket, clients: Clients) {
+async fn handle_ws(ws: warp::ws::WebSocket, clients: Arc<ClientManager>) {
     let (mut ws_tx, mut ws_rx) = ws.split();
-    let (tx, _) = unbounded_channel::<Message>();
+    let (tx, mut rx) = unbounded_channel::<Message>();
+
+    tokio::spawn(async move {
+        while let Some(msg) = rx.recv().await {
+            if ws_tx.send(msg.clone()).await.is_err() {
+                break;
+            } else if msg.to_str().unwrap() == "close" {
+                ws_tx.close().await.unwrap();
+            }
+        }
+    });
+
+    let mut user = None;
 
     while let Some(Ok(msg)) = ws_rx.next().await {
         if let Some(signal_msg) = handle_ws_message(msg) {
             match signal_msg {
-                SignalMessage::Register { id } => {
-                    handle_register_message(id, &clients, &mut ws_tx, tx.clone()).await
+                InMessage::Connect { id } => {
+                    user = Some(id.clone());
+                    handle_connect_message(id, clients.clone(), tx.clone()).await;
                 }
-                SignalMessage::Offer { to, sdp } => {
-                    println!("Received offer for {to}: {sdp}");
-                    // Route to target client
+                InMessage::Disconnect { id } => {
+                    clients.disconnect(&id).await;
                 }
-                SignalMessage::Answer { to, sdp } => {
-                    println!("Received answer for {to}: {sdp}");
+                InMessage::Offer { to, sdp } => {
+                    info!("Received offer for {to}: {sdp}");
+                    if let Some(tx) = clients.get_user_tx(&to).await {
+                        let relay = OutMessage::Answer {
+                            from: user.clone().unwrap().to_string(),
+                            sdp,
+                        };
+                        tx.send(Message::text(format!("{:?}", relay))).unwrap();
+                    }
                 }
-                SignalMessage::IceCandidate { to, candidate } => {
-                    println!("Received ICE candidate for {to}: {candidate}");
+                InMessage::Answer { to, sdp } => {
+                    info!("Received answer for {to}: {sdp}");
+                }
+                InMessage::IceCandidate { to, candidate } => {
+                    info!("Received ICE candidate for {to}: {candidate}");
                 }
             }
         }
     }
 
-    println!("ws closing...");
+    handle_ws_closing();
 }
 
-async fn handle_register_message(
+fn handle_ws_closing() {
+    info!("ws closing...");
+}
+
+async fn handle_connect_message(
     id: String,
-    clients: &Clients,
-    ws_tx: &mut SplitSink<WebSocket, Message>,
+    clients: Arc<ClientManager>,
     tx: UnboundedSender<Message>,
 ) {
-    println!("Registering client with id: {id}");
-    if clients.lock().unwrap().contains_key(&id) {
-        ws_tx
-            .send(Message::text("Conflict, user exists"))
-            .await
-            .unwrap();
-        ws_tx.close().await.unwrap();
-    } else {
-        clients.lock().unwrap().insert(id, tx);
-        ws_tx.send(Message::text("Registered")).await.unwrap();
+    info!("Registering client with id: {id}");
+
+    match clients.connect(id.clone(), tx.clone()).await {
+        Ok(_) => {
+            let users = clients.list().await;
+            if !users.is_empty() {
+                let users_broadcast =
+                    serde_json::to_string(&OutMessage::BroadcastUsers { users: users }).unwrap();
+                tx.send(Message::text(users_broadcast)).unwrap();
+            }
+        }
+        Err(e) => {
+            tx.send(Message::text(e)).unwrap();
+        }
     }
 }
 
-fn handle_ws_message(msg: Message) -> Option<SignalMessage> {
+fn handle_ws_message(msg: Message) -> Option<InMessage> {
     if let Ok(text) = msg.to_str() {
-        serde_json::from_str::<SignalMessage>(text).ok()
+        serde_json::from_str::<InMessage>(text).ok()
     } else {
         None
     }

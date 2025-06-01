@@ -7,16 +7,16 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in library 'chirm_audio'",
+            "name": "Debug unit tests in library 'chirm_encoding'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
                     "--lib",
-                    "--package=chirm_audio"
+                    "--package=chirm_encoding"
                 ],
                 "filter": {
-                    "name": "chirm_audio",
+                    "name": "chirm_encoding",
                     "kind": "lib"
                 }
             },
@@ -26,15 +26,34 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'chirm_receiver'",
+            "name": "Debug benchmark 'benchmark'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bench=benchmark",
+                    "--package=chirm_encoding"
+                ],
+                "filter": {
+                    "name": "benchmark",
+                    "kind": "bench"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'chirm_server'",
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=chirm_receiver",
-                    "--package=chirm_receiver"
+                    "--bin=chirm_server",
+                    "--package=chirm_server"
                 ],
                 "filter": {
-                    "name": "chirm_receiver",
+                    "name": "chirm_server",
                     "kind": "bin"
                 }
             },
@@ -44,16 +63,16 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in executable 'chirm_receiver'",
+            "name": "Debug unit tests in executable 'chirm_server'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
-                    "--bin=chirm_receiver",
-                    "--package=chirm_receiver"
+                    "--bin=chirm_server",
+                    "--package=chirm_server"
                 ],
                 "filter": {
-                    "name": "chirm_receiver",
+                    "name": "chirm_server",
                     "kind": "bin"
                 }
             },
