@@ -91,7 +91,7 @@ async fn handle_connect_message(
             let users = clients.list().await;
             if !users.is_empty() {
                 let users_broadcast =
-                    serde_json::to_string(&OutMessage::BroadcastUsers { users: users }).unwrap();
+                    serde_json::to_string(&OutMessage::BroadcastUsers { users }).unwrap();
                 tx.send(Message::text(users_broadcast)).unwrap();
             }
         }

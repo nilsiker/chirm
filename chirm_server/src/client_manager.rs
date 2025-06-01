@@ -31,16 +31,13 @@ impl ClientManager {
         }
 
         clients.insert(id.clone(), tx);
-        self.broadcast(
-            &OutMessage::UserConnected { user: id },
-            clients,
-        )
-        .await;
+        self.broadcast(&OutMessage::UserConnected { user: id }, clients)
+            .await;
 
         Ok(())
     }
 
-    pub async fn disconnect<'a>(&self, id: &'a str) {
+    pub async fn disconnect(&self, id: &str) {
         let mut clients = self.clients.lock().await;
         if clients.remove(id).is_some() {
             info!("disconnected {id}");
@@ -52,7 +49,7 @@ impl ClientManager {
         }
     }
 
-    async fn is_connected<'a>(&self, id: &'a str, clients_guard: &ClientsGuard<'_>) -> bool {
+    async fn is_connected(&self, id: &str, clients_guard: &ClientsGuard<'_>) -> bool {
         clients_guard.contains_key(id)
     }
 
