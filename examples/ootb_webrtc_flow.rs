@@ -48,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "Answerer got message: {}",
                     String::from_utf8_lossy(&msg.data)
                 );
-                
+
                 let dc = dc.clone();
                 Box::pin(async move {
                     dc.send(&msg.data).await.unwrap();

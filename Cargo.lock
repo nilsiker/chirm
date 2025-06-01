@@ -470,6 +470,7 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "warp",
+ "webrtc",
 ]
 
 [[package]]

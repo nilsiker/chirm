@@ -5,13 +5,14 @@ use client_manager::ClientManager;
 use futures::{SinkExt, StreamExt};
 use messaging::{InMessage, OutMessage};
 use std::sync::Arc;
-use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
-use tracing::info;
+use tokio::sync::mpsc::unbounded_channel;
+use tracing::{info, warn};
+use uuid::Uuid;
 use warp::{Filter, filters::ws::Message};
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt().with_env_filter("debug").init();
+    tracing_subscriber::fmt().with_env_filter("info").init();
 
     let client_manager = Arc::new(ClientManager::new());
 
@@ -27,6 +28,9 @@ async fn main() {
 }
 
 async fn handle_ws(ws: warp::ws::WebSocket, clients: Arc<ClientManager>) {
+    let socket_id = Uuid::new_v4().to_string();
+    info!("socket {socket_id} opened");
+
     let (mut ws_tx, mut ws_rx) = ws.split();
     let (tx, mut rx) = unbounded_channel::<Message>();
 
@@ -47,64 +51,68 @@ async fn handle_ws(ws: warp::ws::WebSocket, clients: Arc<ClientManager>) {
             match signal_msg {
                 InMessage::Connect { id } => {
                     user = Some(id.clone());
-                    handle_connect_message(id, clients.clone(), tx.clone()).await;
+                    if let Err(e) = clients.connect(id.clone(), tx.clone()).await {
+                        println!("{e}");
+                    }
                 }
                 InMessage::Disconnect { id } => {
                     clients.disconnect(&id).await;
                 }
                 InMessage::Offer { to, sdp } => {
-                    info!("Received offer for {to}: {sdp}");
+                    info!("Received offer for {to}: {sdp:?}");
                     if let Some(tx) = clients.get_user_tx(&to).await {
-                        let relay = OutMessage::Answer {
+                        let relay = OutMessage::Offer {
                             from: user.clone().unwrap().to_string(),
+                            to: to.clone(),
                             sdp,
                         };
-                        tx.send(Message::text(format!("{:?}", relay))).unwrap();
+                        tx.send(Message::text(serde_json::to_string(&relay).unwrap()))
+                            .unwrap();
                     }
                 }
                 InMessage::Answer { to, sdp } => {
-                    info!("Received answer for {to}: {sdp}");
+                    info!("Received answer for {to}: {sdp:?}");
+                    if let Some(tx) = clients.get_user_tx(&to).await {
+                        let relay = OutMessage::Answer {
+                            from: user.clone().unwrap().to_string(),
+                            to: to.clone(),
+                            sdp,
+                        };
+                        tx.send(Message::text(serde_json::to_string(&relay).unwrap()))
+                            .unwrap();
+                    }
                 }
                 InMessage::IceCandidate { to, candidate } => {
-                    info!("Received ICE candidate for {to}: {candidate}");
+                    info!("Received ICE candidate for {to}: {candidate:?}");
+                    if let Some(tx) = clients.get_user_tx(&to).await {
+                        let relay = OutMessage::IceCandidate {
+                            from: user.clone().unwrap(),
+                            candidate,
+                        };
+                        tx.send(Message::text(serde_json::to_string(&relay).unwrap()))
+                            .unwrap();
+                    }
                 }
             }
         }
     }
 
-    handle_ws_closing();
+    info!("socket {socket_id} closed");
 }
 
-fn handle_ws_closing() {
-    info!("ws closing...");
-}
-
-async fn handle_connect_message(
-    id: String,
-    clients: Arc<ClientManager>,
-    tx: UnboundedSender<Message>,
-) {
-    info!("Registering client with id: {id}");
-
-    match clients.connect(id.clone(), tx.clone()).await {
-        Ok(_) => {
-            let users = clients.list().await;
-            if !users.is_empty() {
-                let users_broadcast =
-                    serde_json::to_string(&OutMessage::BroadcastUsers { users }).unwrap();
-                tx.send(Message::text(users_broadcast)).unwrap();
-            }
-        }
-        Err(e) => {
-            tx.send(Message::text(e)).unwrap();
-        }
-    }
-}
-
+#[tracing::instrument]
 fn handle_ws_message(msg: Message) -> Option<InMessage> {
-    if let Ok(text) = msg.to_str() {
-        serde_json::from_str::<InMessage>(text).ok()
-    } else {
-        None
+    match msg.to_str() {
+        Ok(text) => match serde_json::from_str::<InMessage>(text) {
+            Ok(msg) => Some(msg),
+            Err(e) => {
+                warn!("{e}");
+                None
+            }
+        },
+        Err(e) => {
+            warn!("{e:#?}");
+            None
+        }
     }
 }
