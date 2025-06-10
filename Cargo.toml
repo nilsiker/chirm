@@ -10,7 +10,7 @@ license = "MIT"
 edition = "2024"
 
 [dependencies]
-cpal = "0.15.3"
+cpal = "0.16.0"
 libp2p = { version = "0.55.0", features = ["tcp", "tokio"] }
 tokio = { version = "1.45.1", features = ["rt-multi-thread", "macros"] }
 webrtc = "0.13.0"
